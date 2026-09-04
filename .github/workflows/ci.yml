@@ -63,18 +63,23 @@ jobs:
         run: |
           test -f third_party/gemini-cli/LICENSE
           test -f third_party/actions-runner/LICENSE
+          test -f third_party/write-file-atomic/LICENSE
           grep -q 'Apache License' third_party/gemini-cli/LICENSE
           grep -q 'MIT License' third_party/actions-runner/LICENSE
+          grep -q 'Copyright (c) 2015, Rebecca Turner' third_party/write-file-atomic/LICENSE
           grep -q 'SPDX-License-Identifier: Apache-2.0' vendor/process-utils.mjs
           grep -q 'NOTICE OF MODIFICATION' vendor/process-utils.mjs
           grep -q 'Copyright 2025 Google LLC' vendor/process-utils.mjs
+          grep -q 'SPDX-License-Identifier: ISC' lib/vendor/write-file-atomic.mjs
+          grep -q 'NOTICE OF MODIFICATION' lib/vendor/write-file-atomic.mjs
+          grep -q 'npm/write-file-atomic' lib/vendor/write-file-atomic.mjs
           echo "ok: attribution intact"
 
       # There is no build step, so a typo would otherwise only show up on a live
       # runner several minutes into a workflow.
       - name: syntax check every module
         run: |
-          for f in agent.mjs lib/*.mjs vendor/*.mjs; do
+          for f in agent.mjs lib/*.mjs lib/vendor/*.mjs vendor/*.mjs; do
             node --check "$f" || exit 1
           done
           echo "ok: all modules parse"
@@ -90,8 +95,10 @@ jobs:
               import('./lib/broker.mjs'),
               import('./lib/shell.mjs'),
               import('./lib/exec.mjs'),
+              import('./lib/fileop.mjs'),
               import('./lib/worker.mjs'),
               import('./lib/control.mjs'),
+              import('./lib/vendor/write-file-atomic.mjs'),
               import('./vendor/process-utils.mjs'),
             ]);
             console.log('ok: all modules import');
@@ -128,3 +135,128 @@ jobs:
             if (/[^-]2>&1/.test(s)) throw new Error('shell-level stream merging is banned');
             console.log('ok: prologue, epilogue and encoding intact');
           "
+
+      # --- file primitives (M2) -------------------------------------------
+      # These gates are scoped to the edit path on purpose. The same patterns
+      # are fine elsewhere in the repo; they are dangerous specifically where
+      # user file content is being matched and rewritten.
+
+      # String#replace treats $&, $1 and $` in the REPLACEMENT as references.
+      # A user's new_str containing $& would then interpolate the match.
+      - name: the edit path never uses String#replace
+        run: |
+          if grep -nE '\.replace(All)?\(' lib/fileop.mjs lib/vendor/*.mjs; then
+            echo "::error::use indexOf + slice; String#replace expands \$& in the replacement"
+            exit 1
+          fi
+          echo "ok: literal replacement only"
+
+      # existsSync is a TOCTOU probe: the answer is stale before it returns.
+      # Open with wx / act and handle the errno instead.
+      - name: no existence probes before acting
+        run: |
+          if grep -nE 'existsSync' lib/fileop.mjs lib/vendor/*.mjs; then
+            echo "::error::existsSync is TOCTOU; use wx + EEXIST or stat and handle ENOENT"
+            exit 1
+          fi
+          echo "ok: no existsSync"
+
+      # err.message carries absolute paths and localised Windows text, which the
+      # model then pattern-matches on. Only our own typed strings go out.
+      - name: raw errno text never reaches the caller
+        run: |
+          if grep -nE 'message: *`?\$?\{?err\.message|String\(err\.message' lib/fileop.mjs; then
+            echo "::error::do not forward err.message; map the errno to a typed code"
+            exit 1
+          fi
+          echo "ok: no raw errno text in results"
+
+      # A decode that silently substitutes U+FFFD would let an edit destroy the
+      # bytes it could not represent. The round-trip is the whole guarantee.
+      - name: text is only edited after a byte round-trip
+        run: |
+          grep -q 'Buffer.compare(' lib/fileop.mjs || {
+            echo "::error::decodeStrict must verify the utf-8 round-trip with Buffer.compare"
+            exit 1
+          }
+          grep -q 'fatal: true' lib/fileop.mjs || {
+            echo "::error::the TextDecoder must be fatal"
+            exit 1
+          }
+          echo "ok: strict utf-8 with a round-trip check"
+
+      # A near miss that edits the wrong line is worse than a failure.
+      - name: no fuzzy matching in the edit path
+        run: |
+          if grep -niE 'levenshtein|fuzzy|similarity|damerau' lib/fileop.mjs; then
+            echo "::error::matching is exact and literal by design"
+            exit 1
+          fi
+          echo "ok: exact matching only"
+
+      # The rename is the commit point. If a second module starts renaming
+      # things, atomicity stops being reviewable in one place.
+      - name: renameSync lives in exactly one module
+        run: |
+          hits=$(grep -rln 'renameSync' agent.mjs lib | grep -v '^lib/vendor/write-file-atomic.mjs$' | grep -v '^lib/util.mjs$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::renameSync outside the vendored writer: $hits"
+            exit 1
+          fi
+          echo "ok: one commit point"
+
+      # `finally` cannot win against SIGKILL, so zero orphaned temp files is
+      # only an invariant if something re-establishes it.
+      - name: orphaned temp files are swept, not just sweepable
+        run: |
+          grep -q 'export function sweepOrphanTmp' lib/vendor/write-file-atomic.mjs
+          grep -q 'sweepOrphanTmp(' lib/fileop.mjs || {
+            echo "::error::sweepOrphanTmp is defined but never called"
+            exit 1
+          }
+          echo "ok: orphan sweep is wired in"
+
+  unit:
+    # The file primitives are the one part of this agent whose behaviour differs
+    # per OS (rename over an open file, chmod, path case), so they are tested on
+    # all three rather than on ubuntu with a promise.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: node --test
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          node --test \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=artifacts/report.xml \
+            test/
+
+      # A skipped test is not a passing test. Windows legitimately skips the
+      # POSIX mode assertions, so the gate runs where nothing should skip.
+      - name: skipped is not green
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const xml = fs.readFileSync("artifacts/report.xml", "utf8");
+            const head = xml.match(/<testsuites[^>]*>/);
+            if (!head) throw new Error("no <testsuites> element in the junit report");
+            const skipped = /skipped="(\d+)"/.exec(head[0]);
+            if (skipped && Number(skipped[1]) > 0) throw new Error("skipped tests are not green: " + skipped[1]);
+            console.log("ok: " + head[0]);
+          '
+
+      - name: keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ matrix.os }}
+          path: artifacts/report.xml
+          if-no-files-found: warn
