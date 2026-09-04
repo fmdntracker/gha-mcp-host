@@ -194,15 +194,16 @@ jobs:
           fi
           echo "ok: exact matching only"
 
-      # The rename is the commit point. If a second module starts renaming
-      # things, atomicity stops being reviewable in one place.
-      - name: renameSync lives in exactly one module
+      # The rename is the commit point and it belongs to the vendored writer.
+      # fileop must commit through it instead of growing a second, unreviewed
+      # commit path of its own.
+      - name: the file primitives never rename by hand
         run: |
-          hits=$(grep -rln 'renameSync' agent.mjs lib | grep -v '^lib/vendor/write-file-atomic.mjs$' | grep -v '^lib/util.mjs$' || true)
-          if [ -n "$hits" ]; then
-            echo "::error::renameSync outside the vendored writer: $hits"
+          if grep -n 'renameSync' lib/fileop.mjs; then
+            echo "::error::fileop must commit through writeAtomic/renameWithRetry"
             exit 1
           fi
+          grep -q 'export function renameWithRetry' lib/vendor/write-file-atomic.mjs
           echo "ok: one commit point"
 
       # `finally` cannot win against SIGKILL, so zero orphaned temp files is
