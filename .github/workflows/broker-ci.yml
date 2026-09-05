@@ -1,0 +1,96 @@
+name: broker-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["broker/**", ".github/workflows/broker-ci.yml"]
+  pull_request:
+    paths: ["broker/**", ".github/workflows/broker-ci.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: broker
+    env:
+      CI: "true"
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No package-lock.json is committed, so `npm ci` would fail outright.
+      # Everything that must not drift is pinned exactly in package.json:
+      # @modelcontextprotocol/{client,server} 2.0.0, sdk 1.30.0, vitest 4.1.10.
+      - name: install
+        run: npx --yes npm@11.19.1 install --no-audit --no-fund --package-lock=false
+
+      # GATE 1 - the reason this file exists.
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      # GATE 2 - unit tests. --passWithNoTests keeps this green while the suite
+      # is still being written; drop the flag once test/unit/ lands.
+      - name: unit tests
+        run: npx vitest run --passWithNoTests
+
+      # GATE 3 - the exact defect that once shipped a tree that could not
+      # compile: bytes.ts exports safeCut(). There has never been a cutSafe().
+      - name: no cutSafe
+        run: |
+          if grep -rn 'cutSafe' src test 2>/dev/null; then
+            echo "::error::no such export; bytes.ts exports safeCut"
+            exit 1
+          fi
+
+      # GATE 4 - bytes.ts INVARIANT 2: exactly one cut site. renderWindow() is
+      # defined in src/bytes.ts and may be called from src/tools-shared.ts and
+      # nowhere else. A second call site would make a re-read of the same
+      # {start_byte, max_bytes} return a different number of bytes than the
+      # first read did, and server-state-free byte-range addressing is the only
+      # reason this broker survives the 60s MCP request timeout.
+      - name: one cut site only
+        run: |
+          callers="$(grep -rnF 'renderWindow(' src | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)' | cut -d: -f1 | grep -v '^src/bytes.ts$' | sort -u | tr '\n' ' ')"
+          echo "callers: ${callers:-none}"
+          test "$(echo $callers)" = "src/tools-shared.ts"
+
+      # GATE 5 - the window contract. WindowResult carries neither next_byte nor
+      # partial_line_dropped: both are derived from the decoded bytes broker
+      # side, because deriving next_byte from base64 length over-counts by up to
+      # 2 bytes on padded input.
+      - name: window contract
+        run: |
+          if grep -Hn 'next_byte\|partial_line_dropped' src/env-window.ts | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)'; then
+            echo "::error::WindowResult must not carry next_byte or partial_line_dropped"
+            exit 1
+          fi
+
+      # GATE 6 - two things that were removed by decision and must not return:
+      # the command allow/deny layer (security theater, it cannot survive
+      # `bash -c`), and the banned vendoring base (see VENDOR.md).
+      - name: dropped by decision
+        run: |
+          if grep -rn 'DEFAULT_DENY_PATTERNS\|checkCommand\|deny_pattern' src | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)'; then
+            echo "::error::the deny layer was removed by decision; do not reintroduce it"
+            exit 1
+          fi
+          # VENDOR.md documents why that source was rejected; inspect code/config.
+          if grep -rniE 'opencode[-_]mcp[-_]bridge' src test package.json tsconfig.json wrangler.toml; then
+            echo "::error::that project is not a permitted source here; see VENDOR.md"
+            exit 1
+          fi
+
+      - name: dry-run bundle (no upload)
+        run: npx wrangler deploy --dry-run --outdir dist
