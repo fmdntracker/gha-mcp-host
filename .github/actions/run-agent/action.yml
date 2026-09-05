@@ -64,7 +64,14 @@ runs:
         # Reset any inherited helper (Git Credential Manager on Windows) first,
         # then add a file-backed store. No insteadOf: that would embed the secret in URLs.
         git config --file "$CFG" credential.helper ""
-        git config --file "$CFG" --add credential.helper "store --file=$CRED"
+        # Git reparses helper commands through a shell. Normalize Windows paths
+        # before quoting so backslashes, spaces and metacharacters survive it.
+        CRED_HELPER="$CRED"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          CRED_HELPER="${CRED_HELPER//\\//}"
+        fi
+        printf -v CRED_HELPER '%q' "$CRED_HELPER"
+        git config --file "$CFG" --add credential.helper "store --file=$CRED_HELPER"
         git config --file "$CFG" credential.interactive never
         if [ -n "${GHA_MCP_PAT:-}" ]; then
           printf 'https://x-access-token:%s@github.com\n' "$GHA_MCP_PAT" > "$CRED"
