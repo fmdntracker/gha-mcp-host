@@ -1,0 +1,37 @@
+name = "gha-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Broker and runner sources share fmdntracker/gha-mcp-host. The broker is built
+# from /broker; runner workflows remain at the repository root. Keep this Worker
+# name, DO bindings and migration history unchanged to retain existing state.
+# Deploying swaps isolates and drops in-flight polls; runners reconnect normally.
+
+[vars]
+GITHUB_OWNER = "fmdntracker"
+GITHUB_REPO = "gha-mcp-host"
+GITHUB_REF = "main"
+MAX_ENV_CREATES_PER_HOUR = "10"
+DEFAULT_TTL_MINUTES = "60"
+MAX_TTL_MINUTES = "330"
+
+[[durable_objects.bindings]]
+name = "ENV_DO"
+class_name = "EnvDO"
+
+[[durable_objects.bindings]]
+name = "GUARD_DO"
+class_name = "GuardDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EnvDO", "GuardDO"]
+
+[observability]
+enabled = true
+
+# Existing Worker secrets are retained during deployment; never commit values:
+#   GITHUB_PAT_DISPATCH  fmdntracker PAT, Actions: write on gha-mcp-host
+#   BROKER_SECRET        shared secret for the one-shot enroll HMAC
+#   MCP_AUTH_TOKEN       bearer token for POST /mcp
