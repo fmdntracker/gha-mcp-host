@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 WORKDIR /app/broker/selfhost
 COPY broker/selfhost/package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY broker/src ../src
 COPY broker/selfhost ./
 RUN npm run build && npm test

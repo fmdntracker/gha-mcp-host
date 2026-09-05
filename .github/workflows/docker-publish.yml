@@ -45,11 +45,10 @@ jobs:
       - name: Build and test Node broker (no Cloudflare or real workflow dispatch)
         working-directory: broker/selfhost
         run: |
-          npm install --no-audit --no-fund
-          node -e "console.log('LOCK_GZIP_BASE64='+require('node:zlib').gzipSync(require('node:fs').readFileSync('package-lock.json')).toString('base64'))"
+          npm ci --no-audit --no-fund
           npm run build
           npm test
-      - name: Validate Compose variants
+      - name: Validate Compose variants and Caddy configuration
         env:
           MCP_AUTH_TOKEN: ci-token
           BROKER_SECRET: ci-secret
@@ -60,6 +59,7 @@ jobs:
           docker compose -f compose.yaml -f compose.build.yaml config --quiet
           docker compose -f compose.yaml -f compose.https.yaml config --quiet
           docker compose -f compose.yaml -f compose.build.yaml -f compose.https.yaml config --quiet
+          docker run --rm -e PUBLIC_URL -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Build and smoke-test the production container
         env:
           MCP_AUTH_TOKEN: ci-token
@@ -78,17 +78,10 @@ jobs:
             -H 'Authorization: Bearer ci-token' \
             -H 'Content-Type: application/json' \
             -H 'Accept: application/json, text/event-stream' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -q 'env_create'
+            --data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' --output /tmp/mcp-tools.txt
+          grep -q 'env_create' /tmp/mcp-tools.txt
           dc restart broker
           dc up -d --no-build --wait --wait-timeout 60
-      - name: Dependency lock candidate
-        if: always()
-        # Kept as a reviewable build artifact, never a secret or server state.
-        uses: actions/upload-artifact@v4
-        with:
-          name: selfhost-dependency-lock
-          path: broker/selfhost/package-lock.json
-          retention-days: 7
 
   publish:
     needs: test
