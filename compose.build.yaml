@@ -1,0 +1,9 @@
+# Local build, including before the first GHCR publication.
+# docker compose -f compose.yaml -f compose.build.yaml up -d --build
+services:
+  broker:
+    image: gha-mcp-host:local
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile

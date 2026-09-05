@@ -1,0 +1,46 @@
+name: gha-mcp
+
+services:
+  broker:
+    image: ${GHA_MCP_IMAGE:-ghcr.io/fmdntracker/gha-mcp-host:latest}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${BROKER_PORT:-8787}:8787"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATA_DIR: /var/lib/gha-mcp
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8787}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      GITHUB_OWNER: ${GITHUB_OWNER:-fmdntracker}
+      GITHUB_REPO: ${GITHUB_REPO:-gha-mcp-host}
+      GITHUB_REF: ${GITHUB_REF:-main}
+      GITHUB_PAT_DISPATCH: ${GITHUB_PAT_DISPATCH:?Set GITHUB_PAT_DISPATCH in .env}
+      BROKER_SECRET: ${BROKER_SECRET:?Set BROKER_SECRET in .env}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env}
+      DEFAULT_TTL_MINUTES: ${DEFAULT_TTL_MINUTES:-60}
+      MAX_TTL_MINUTES: ${MAX_TTL_MINUTES:-330}
+      MAX_ENV_CREATES_PER_HOUR: ${MAX_ENV_CREATES_PER_HOUR:-10}
+      AGENT_WAIT_SECONDS: ${AGENT_WAIT_SECONDS:-50}
+      EXEC_WORKERS: ${EXEC_WORKERS:-4}
+      UNREACHABLE_LIMIT_SECONDS: ${UNREACHABLE_LIMIT_SECONDS:-600}
+      MAX_OUTPUT_BYTES: ${MAX_OUTPUT_BYTES:-268435456}
+    volumes:
+      - broker_data:/var/lib/gha-mcp
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  broker_data:

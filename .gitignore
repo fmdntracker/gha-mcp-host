@@ -9,3 +9,9 @@ dist/
 artifacts/
 *.log
 .DS_Store
+# Local self-hosted broker state (credentials and command metadata).
+broker/selfhost/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
