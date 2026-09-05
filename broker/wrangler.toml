@@ -1,0 +1,43 @@
+name = "gha-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# MCP and the broker are co-hosted in one Worker on purpose: one deploy, one URL,
+# one DO class. The real cost of co-hosting is that `wrangler deploy` swaps the
+# isolate and drops every in-flight long poll, which is why "disconnection is a
+# normal event, reconnect with jittered backoff" is part of the runner contract.
+# Splitting them later is a wrangler.toml change (bind the DO across scripts with
+# `script_name`), not a redesign.
+
+[vars]
+# Broker and runner source now share the canonical fmdntracker repository.
+# Keep dispatch pointed at that standalone repository, never a contributor fork.
+# This move preserves the existing Worker identity, DO bindings and migrations.
+GITHUB_OWNER = "fmdntracker"
+GITHUB_REPO = "gha-mcp-host"
+GITHUB_REF = "main"
+MAX_ENV_CREATES_PER_HOUR = "10"
+DEFAULT_TTL_MINUTES = "60"
+MAX_TTL_MINUTES = "330"
+
+[[durable_objects.bindings]]
+name = "ENV_DO"
+class_name = "EnvDO"
+
+[[durable_objects.bindings]]
+name = "GUARD_DO"
+class_name = "GuardDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EnvDO", "GuardDO"]
+
+[observability]
+enabled = true
+
+# Secrets (wrangler secret put):
+#   GITHUB_PAT_DISPATCH  fine-grained PAT owned by GITHUB_OWNER above,
+#                        actions:write on the runner repo ONLY
+#   BROKER_SECRET        shared secret for the one-shot enroll HMAC
+#   MCP_AUTH_TOKEN       bearer token for POST /mcp

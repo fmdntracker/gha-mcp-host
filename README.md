@@ -1,10 +1,13 @@
 # gha-mcp-host
 
-Runner half of **gha-mcp**: ephemeral Linux / macOS / Windows shell environments for
-an AI agent, provisioned as GitHub Actions jobs and driven over MCP.
+The **gha-mcp** monorepo: ephemeral Linux / macOS / Windows shell environments
+for an AI agent, provisioned as GitHub Actions jobs and driven over MCP.
 
-The MCP server itself lives in `nmt3325/gha-mcp-broker`. This repository contains
-only what runs *on* the runner.
+The runner stays at the repository root; the Cloudflare Worker MCP server lives
+in [`broker/`](./broker/README.md). The canonical repository for both is
+`fmdntracker/gha-mcp-host`. See [`broker/MIGRATION.md`](./broker/MIGRATION.md) for
+the separate, manual production cutover. Merging code does not change the
+Cloudflare project's Git connection or deploy the Worker.
 
 ```
 AI ──MCP──▶ broker (Cloudflare Worker + Durable Object)
@@ -22,36 +25,35 @@ including macOS. On the Free plan a private repository gets 2,000 minutes/month,
 and macOS bills at 10x, which works out to roughly 200 usable macOS minutes a
 month -- not enough to be useful.
 
-Being public is safe here because of one property, and it is the only thing
-protecting the repository:
+The workflows that start remote-compute environments (`linux.yml`, `macos.yml`,
+`windows.yml` and `probe.yml`) are **`workflow_dispatch` only**. Do not add
+`pull_request`, `pull_request_target` or `issue_comment` triggers to them.
 
-> **Every workflow is `workflow_dispatch` only.**
-
-Fork pull requests get a read-only `GITHUB_TOKEN` and no access to secrets, and
-`workflow_dispatch` requires write access to the repository, so a fork cannot
-dispatch these workflows or reach `BROKER_SECRET`. Adding `pull_request`,
-`pull_request_target`, or `issue_comment` to any workflow here destroys that
-property. Do not do it.
+Runner and broker CI may run on pull requests with `contents: read`, no repository
+secrets and no persisted checkout credentials. CI never starts an MCP environment
+or deploys a Worker. The optional `broker-deploy.yml` is manual-only, defaults to
+a dry run and permits deployment only from this repository's `main` branch.
 
 ## Why this repository is not a fork
 
-This is a standalone repository with its own history. That is deliberate:
-GitHub disables Actions on forked repositories by default, and `workflow_dispatch`
-is the only entry point this repository has -- so a fork starts out unable to do
-the one thing it exists for, and keeps an upstream relationship that means
-nothing for compute. A fresh repository is dispatchable as soon as its secrets
-are set.
+The canonical repository remains standalone, with its existing history and
+Actions setup. A contributor fork is only a place to propose a pull request;
+it is not the runner execution target and does not replace this repository.
 
-It also lives under a **different GitHub account** from the broker repository.
-Running Actions as general-purpose compute is the workload most likely to trip an
-account-level suspension, and an isolated owner keeps that blast radius off the
-primary account. The broker learns about that account from a single variable
-(`GITHUB_OWNER`), so moving again is one line plus a new PAT.
+Both code trees now live under `fmdntracker`. This deliberately removes the old
+split between the broker's source owner and the runner's source owner. The
+Cloudflare account, Worker name, Durable Objects and deployed secrets are not
+moved by this repository change. The broker still dispatches to
+`fmdntracker/gha-mcp-host` at `main`, through `GITHUB_OWNER`, `GITHUB_REPO` and
+`GITHUB_REF` in `broker/wrangler.toml`.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
+| `broker/` | Cloudflare Worker, Durable Objects, MCP server and broker development documentation. |
+| `.github/workflows/broker-ci.yml` | Broker typecheck, validation, invariant checks and dry-run bundle from `broker/`. |
+| `.github/workflows/broker-deploy.yml` | Optional manual deployment; does not synchronize or overwrite secrets. |
 | `agent.mjs` | Entry point: role dispatch, plus the invariants worth reading before editing anything. |
 | `lib/config.mjs` | Platform detection, configuration, on-disk layout, tunable constants. |
 | `lib/util.mjs` | Small helpers, and the ENOSPC evidence guard. |

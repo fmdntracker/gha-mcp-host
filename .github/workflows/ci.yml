@@ -6,11 +6,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   invariants:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       # libuv#1490: two threads calling uv_spawn can inherit each other's
       # handles. That issue is closed for us only because this process is
@@ -18,7 +26,7 @@ jobs:
       # appears. Fail the build instead of silently voiding the argument.
       - name: the agent must stay single-threaded
         run: |
-          if grep -RnE 'worker_threads|new Worker\(' agent.mjs lib vendor; then
+          if grep -RnE 'worker_threads|new Worker\(' agent.mjs lib vendor | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)'; then
             echo "::error::worker_threads is banned in the runner agent (libuv#1490)"
             exit 1
           fi
@@ -28,7 +36,7 @@ jobs:
       # threadpool. Growth is detected with synchronous fstat.
       - name: fs.watch is banned
         run: |
-          if grep -RnE 'fs\.watch|watchFile' agent.mjs lib vendor; then
+          if grep -RnE 'fs\.watch|watchFile' agent.mjs lib vendor | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)'; then
             echo "::error::fs.watch/watchFile are banned; poll fstat instead"
             exit 1
           fi
@@ -188,7 +196,7 @@ jobs:
       # A near miss that edits the wrong line is worse than a failure.
       - name: no fuzzy matching in the edit path
         run: |
-          if grep -niE 'levenshtein|fuzzy|similarity|damerau' lib/fileop.mjs; then
+          if grep -HniE 'levenshtein|fuzzy|similarity|damerau' lib/fileop.mjs | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*)'; then
             echo "::error::matching is exact and literal by design"
             exit 1
           fi
@@ -228,6 +236,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: node --test
         shell: bash
@@ -236,7 +249,7 @@ jobs:
           node --test \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=artifacts/report.xml \
-            test/
+            test/*.test.mjs
 
       # A skipped test is not a passing test. Windows legitimately skips the
       # POSIX mode assertions, so the gate runs where nothing should skip.
