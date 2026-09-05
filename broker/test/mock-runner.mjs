@@ -76,7 +76,7 @@ const gh = createServer((req, res) => {
 			const runId = String(nextRunId++)
 			runId && runs.set(runId, { envId, status: "in_progress", stop: null })
 			ghJson(res, 200, {
-				run: { id: Number(runId), html_url: `{{http://localhost/run/${runId}}}`, run_attempt: 1 },
+				run: { id: Number(runId), html_url: `http://localhost/run/${runId}`, run_attempt: 1 },
 			})
 			startRunner(envId, runId, Number(parsed?.inputs?.ttl_minutes || 60)).catch((e) => log("runner died:", e))
 			return
@@ -102,7 +102,7 @@ const gh = createServer((req, res) => {
 					// Exactly what the real workflows produce via `run-name:`.
 					name: `gha-mcp ${r.envId}`,
 					status: r.status,
-					html_url: `{{http://localhost/run/${id}}}`,
+					html_url: `http://localhost/run/${id}`,
 					created_at: new Date().toISOString(),
 				}))
 			return ghJson(res, 200, { total_count: workflow_runs.length, workflow_runs })
@@ -176,7 +176,7 @@ async function startRunner(envId, runId, ttlMinutes) {
 				platform: envId.startsWith("win-") ? "windows" : envId.startsWith("mac-") ? "macos" : "linux",
 				node: process.version,
 				work_dir: "/tmp/gha-mcp/work",
-				run_url: `{{http://localhost/run/${runId}}}`,
+				run_url: `http://localhost/run/${runId}`,
 				mock: true,
 			}),
 		}).catch(() => null)
