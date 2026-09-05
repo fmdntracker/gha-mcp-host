@@ -1,0 +1,28 @@
+# Optional automatic TLS when this server owns ports 80/443 and public DNS.
+# docker compose -f compose.yaml -f compose.https.yaml up -d
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      broker:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL to your public HTTPS origin}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

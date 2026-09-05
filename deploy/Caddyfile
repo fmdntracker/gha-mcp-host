@@ -1,0 +1,10 @@
+{$PUBLIC_URL} {
+  reverse_proxy broker:8787 {
+    # Deliver MCP progress/SSE immediately, not after a buffered response.
+    flush_interval -1
+    transport http {
+      response_header_timeout 90s
+      read_timeout 0
+    }
+  }
+}
