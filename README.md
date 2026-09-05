@@ -1,14 +1,10 @@
 # gha-mcp-host
 
-Unified source repository for **gha-mcp**: ephemeral Linux / macOS / Windows
-shell environments for an AI agent, provisioned as GitHub Actions jobs and driven
-over MCP.
+Runner half of **gha-mcp**: ephemeral Linux / macOS / Windows shell environments for
+an AI agent, provisioned as GitHub Actions jobs and driven over MCP.
 
-The runner stays at the repository root; the Cloudflare Worker + Durable Objects
-broker lives in [`broker/`](./broker/). Both are maintained in
-`fmdntracker/gha-mcp-host`. Moving the source does not change the existing Worker
-URL, its Durable Objects or runtime secrets. See the [migration and rollback
-guide](./broker/MIGRATION.md) for the build-source cutover.
+The MCP server itself lives in `nmt3325/gha-mcp-broker`. This repository contains
+only what runs *on* the runner.
 
 ```
 AI ──MCP──▶ broker (Cloudflare Worker + Durable Object)
@@ -26,35 +22,36 @@ including macOS. On the Free plan a private repository gets 2,000 minutes/month,
 and macOS bills at 10x, which works out to roughly 200 usable macOS minutes a
 month -- not enough to be useful.
 
-**Credential-bearing runner workflows are `workflow_dispatch` only.** The
-optional broker deployment workflow is also manual-only and deploys only from
-`main`. CI is separate: it runs on pushes and pull requests with `contents: read`
-and no application secrets.
+Being public is safe here because of one property, and it is the only thing
+protecting the repository:
 
-Fork pull requests receive no repository secrets. Do not add `pull_request`,
-`pull_request_target` or `issue_comment` triggers to the runner or deployment
-workflows. Public source code is not a reason to publish credentials: Worker and
-runner secrets stay in Cloudflare and GitHub's secret stores, not in this tree.
+> **Every workflow is `workflow_dispatch` only.**
+
+Fork pull requests get a read-only `GITHUB_TOKEN` and no access to secrets, and
+`workflow_dispatch` requires write access to the repository, so a fork cannot
+dispatch these workflows or reach `BROKER_SECRET`. Adding `pull_request`,
+`pull_request_target`, or `issue_comment` to any workflow here destroys that
+property. Do not do it.
 
 ## Why this repository is not a fork
 
-This is a standalone repository with its own history. GitHub disables Actions on
-forked repositories by default, whereas a fresh standalone repository can run the
-dispatch workflows as soon as its secrets are set.
+This is a standalone repository with its own history. That is deliberate:
+GitHub disables Actions on forked repositories by default, and `workflow_dispatch`
+is the only entry point this repository has -- so a fork starts out unable to do
+the one thing it exists for, and keeps an upstream relationship that means
+nothing for compute. A fresh repository is dispatchable as soon as its secrets
+are set.
 
-Broker and runner sources now share this **fmdntracker** repository. The earlier
-broker repository is retained only for history and rollback. The Cloudflare
-account and deployed Worker are unchanged. Dispatch still targets this repository
-through `GITHUB_OWNER`, `GITHUB_REPO` and `GITHUB_REF` in `broker/wrangler.toml`.
+It also lives under a **different GitHub account** from the broker repository.
+Running Actions as general-purpose compute is the workload most likely to trip an
+account-level suspension, and an isolated owner keeps that blast radius off the
+primary account. The broker learns about that account from a single variable
+(`GITHUB_OWNER`), so moving again is one line plus a new PAT.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `broker/` | Cloudflare Worker, Durable Objects, broker tests and dependency configuration. |
-| `broker/MIGRATION.md` | Build-source cutover, verification and rollback procedure. |
-| `.github/workflows/broker-ci.yml` | Broker typecheck, invariant gates and dry-run bundle; no deployment secrets. |
-| `.github/workflows/broker-deploy.yml` | Optional manual deployment of the existing Worker; dry-run by default. |
 | `agent.mjs` | Entry point: role dispatch, plus the invariants worth reading before editing anything. |
 | `lib/config.mjs` | Platform detection, configuration, on-disk layout, tunable constants. |
 | `lib/util.mjs` | Small helpers, and the ENOSPC evidence guard. |
@@ -164,14 +161,6 @@ The broker needs the mirror image: the same `BROKER_SECRET`, plus a fine-grained
 PAT owned by *this* account with **Actions: read and write** on *this* repository
 only, stored as the Worker secret `GITHUB_PAT_DISPATCH`. Nothing in this
 repository ever sees that PAT.
-
-## Broker development and deployment
-
-Run broker commands from `broker/`, not the repository root. The normal deployment
-path is Cloudflare Workers Builds with this repository and root directory
-`/broker`. [broker/README.md](./broker/README.md) describes the broker; the
-[migration guide](./broker/MIGRATION.md) documents cutover and rollback. Merely
-merging source files does not change the Cloudflare Git connection.
 
 ## Gate 0
 

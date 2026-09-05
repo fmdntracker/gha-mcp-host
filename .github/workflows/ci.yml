@@ -6,17 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   invariants:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       # libuv#1490: two threads calling uv_spawn can inherit each other's
       # handles. That issue is closed for us only because this process is
@@ -234,9 +228,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: node --test
         shell: bash
@@ -245,7 +236,7 @@ jobs:
           node --test \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=artifacts/report.xml \
-            test/*.test.mjs
+            test/
 
       # A skipped test is not a passing test. Windows legitimately skips the
       # POSIX mode assertions, so the gate runs where nothing should skip.
