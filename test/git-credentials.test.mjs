@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process";
 
 // Exercise the actual action setup, not a second implementation of its quoting.
 // Stop before the PAT branch: these tests use only synthetic offline credentials.
-const action = fs.readFileSync(new URL("../.github/actions/run-agent/action.yml", import.meta.url), "utf8");
+// Git's Windows checkout can use CRLF; parse logical YAML lines on every OS.
+const action = fs.readFileSync(new URL("../.github/actions/run-agent/action.yml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const name = "    - name: Install PAT credentials without exposing the token to commands\n";
 assert.equal(action.split(name).length, 2, "credential setup step must be unique");
 const step = action.split(name)[1].split("\n    - name: ")[0];
