@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: "22"
       - name: install
-        run: npm install --no-audit --no-fund
+        run: npx --yes --package=npm@11.19.1 -- npm install --no-audit --no-fund
       - name: typecheck
         run: npm run typecheck
       - name: bundle without deploying

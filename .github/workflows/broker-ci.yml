@@ -29,7 +29,7 @@ jobs:
           node-version: "22"
       # Preserve the source repository's dependency policy (no committed lock).
       - name: install
-        run: npm install --no-audit --no-fund
+        run: npx --yes --package=npm@11.19.1 -- npm install --no-audit --no-fund
       - name: typecheck
         run: npm run typecheck
       # The migrated broker has no Vitest cases yet. This is not an e2e test.
