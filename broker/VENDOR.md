@@ -222,4 +222,4 @@ Apache-2.0 §4 原文:
 
 §4(b)(c) は台帳では満たせません。改変したファイル自身に告知が必要です。runner 側 `vendor/process-utils.mjs` は上流ヘッダーを逐語保持し、その直後に `NOTICE OF MODIFICATION — required by Apache License 2.0 §4(b)` として改変 6 点を列挙しています。broker 側に Apache-2.0 由来の改変ファイルはありません。
 
-Apache-2.0 §4(d) の NOTICE 同梱義務は **発生しません** — `google-gemini/gemini-cli` のルートツリー (41 エントリ) を全数確認し、`NOTICE` ファイルが存在しないことを確認済みです.
+Apache-2.0 §4(d) の NOTICE 同梱義務は **発生しません** — `google-gemini/gemini-cli` のルートツリー (41 エントリ) を全数確認し、`NOTICE` ファイルが存在しないことを確認済みです。
