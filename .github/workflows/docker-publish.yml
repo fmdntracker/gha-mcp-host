@@ -46,6 +46,7 @@ jobs:
         working-directory: broker/selfhost
         run: |
           npm install --no-audit --no-fund
+          node -e "console.log('LOCK_GZIP_BASE64='+require('node:zlib').gzipSync(require('node:fs').readFileSync('package-lock.json')).toString('base64'))"
           npm run build
           npm test
       - name: Validate Compose variants
@@ -81,6 +82,7 @@ jobs:
           dc restart broker
           dc up -d --no-build --wait --wait-timeout 60
       - name: Dependency lock candidate
+        if: always()
         # Kept as a reviewable build artifact, never a secret or server state.
         uses: actions/upload-artifact@v4
         with:

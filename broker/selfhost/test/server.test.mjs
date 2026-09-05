@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createServer } from "node:http"
+import { createServer, request as httpRequest } from "node:http"
 import { createHmac } from "node:crypto"
 import { once } from "node:events"
 import { mkdtempSync, rmSync, readdirSync } from "node:fs"
@@ -87,7 +87,17 @@ test("HTTP, MCP, enrollment, execution, SSE and restart work without Cloudflare"
   assert.equal((await fetch(`${broker.origin}/missing`)).status, 404)
   assert.equal((await fetch(`${broker.origin}/mcp`, { method: "POST" })).status, 401)
   assert.equal((await fetch(`${broker.origin}/mcp`, { method: "POST", headers: { authorization: `Bearer ${settings.BROKER_SECRET}` } })).status, 401)
-  assert.equal((await fetch(`${broker.origin}/healthz`, { headers: { host: "attacker.example" } })).status, 403)
+  // fetch intentionally ignores a caller-supplied Host; exercise the wire
+  // header using node:http rather than accidentally testing the normal host.
+  const rejectedHost = await new Promise((resolveStatus, reject) => {
+    const req = httpRequest(`${broker.origin}/healthz`, { headers: { host: "attacker.example" } }, (res) => {
+      res.resume()
+      res.on("end", () => resolveStatus(res.statusCode))
+    })
+    req.on("error", reject)
+    req.end()
+  })
+  assert.equal(rejectedHost, 403)
   assert.equal((await fetch(`${broker.origin}/healthz`, { headers: { origin: "https://attacker.example" } })).status, 403)
   assert.equal((await fetch(`${broker.origin}/agent/linux-00000000/next`)).status, 404)
   assert.equal(readdirSync(join(directory, "environments")).length, 0)
@@ -148,7 +158,6 @@ test("HTTP, MCP, enrollment, execution, SSE and restart work without Cloudflare"
   assert.equal(deduped.command_id, executed.command_id)
   await runCommand("echo progress", 5300, true)
 
-  const previousOrigin = broker.origin
   await broker.close()
   broker = await startServer(env)
   assert.ok(broker.origin)
