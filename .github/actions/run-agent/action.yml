@@ -19,7 +19,7 @@ inputs:
     description: Shared secret used only for the one-shot enroll HMAC
     required: true
   gh_pat:
-    description: Optional fine-grained PAT for cloning other private repositories
+    description: Optional fine-grained PAT for gh and private git operations
     required: false
     default: ""
   exec_workers:
@@ -49,7 +49,7 @@ runs:
         if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }
         Write-Host "encoding=$([Console]::OutputEncoding.WebName) rendering=$($PSStyle.OutputRendering)"
 
-    - name: Install git credentials without putting the PAT in the environment
+    - name: Install PAT credentials without exposing the token to commands
       shell: bash
       env:
         GHA_MCP_PAT: ${{ inputs.gh_pat }}
@@ -57,6 +57,7 @@ runs:
         set -u
         CFG="$RUNNER_TEMP/gha-mcp-gitconfig"
         CRED="$RUNNER_TEMP/gha-mcp-credentials"
+        GHCFG="$RUNNER_TEMP/gha-mcp-gh"
         : > "$CFG"
         : > "$CRED"
         chmod 600 "$CRED" 2>/dev/null || true
@@ -68,8 +69,28 @@ runs:
         if [ -n "${GHA_MCP_PAT:-}" ]; then
           printf 'https://x-access-token:%s@github.com\n' "$GHA_MCP_PAT" > "$CRED"
           echo "git credentials installed"
+
+          # Linux runners ship gh. Keep its PAT in an ephemeral mode-600 config
+          # rather than exporting GH_TOKEN into every command environment.
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            if ! command -v gh >/dev/null 2>&1; then
+              echo "::error::gh is required on Linux runners"
+              exit 1
+            fi
+            mkdir -p "$GHCFG"
+            chmod 700 "$GHCFG" 2>/dev/null || true
+            printf '%s\n' "$GHA_MCP_PAT" |
+              GH_CONFIG_DIR="$GHCFG" gh auth login \
+                --hostname github.com \
+                --git-protocol https \
+                --with-token \
+                --insecure-storage
+            chmod 600 "$GHCFG/hosts.yml" 2>/dev/null || true
+            echo "GH_CONFIG_DIR=$GHCFG" >> "$GITHUB_ENV"
+            echo "gh credentials installed"
+          fi
         else
-          echo "no PAT supplied; only public clones will work"
+          echo "no PAT supplied; gh is unauthenticated and only public clones will work"
         fi
         echo "GIT_CONFIG_GLOBAL=$CFG" >> "$GITHUB_ENV"
 
